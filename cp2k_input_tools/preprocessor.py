@@ -26,6 +26,80 @@ _SET_MATCH = re.compile(r"\s*@SET\s+(?P<var>\S+)\s+(?P<value>.+)", flags=re.IGNO
 _INCLUDE_MATCH = re.compile(r"\s*(?P<complete>@(?P<type>INCLUDE|XCTYPE)\b\s*(?P<file>.*))", flags=re.IGNORECASE)
 
 
+def resolve_variables(line, varstack):
+    """Resolve the ``${var}``/``${var-default}``/``$var`` references in *line* using *varstack*.
+
+    *varstack* must map upper-case variable names to :class:`_Variable` entries.
+    Raises a :class:`PreprocessorError` on undefined/invalid variables or unterminated
+    ``${...`` constructs. The algorithm reproduces CP2K's ``cp_parser_inpp_methods.F`` behavior.
+    """
+    # the following algorithm is from CP2Ks cp_parser_inpp_methods.F to reproduce its behavior :(
+
+    ctx = Context(line=line)
+
+    # first replace all "${...}"  with no nesting, meaning that ${foo${bar}} means foo$bar is the key
+    while True:
+        var_start = line.find("${")
+        if var_start < 0:
+            break
+
+        var_end = line.find("}", var_start + 2)
+        if var_end < 0:
+            ctx.colnr = len(line)
+            ctx.ref_colnr = var_start
+            raise PreprocessorError("unterminated variable", ctx)
+
+        ctx.colnr = var_start
+        ctx.ref_colnr = var_end
+
+        key = line[var_start + 2 : var_end]  # without ${ and }
+        value = None
+
+        try:
+            # see whether we got a default value and unpack
+            key, value = key.split("-", maxsplit=1)
+        except ValueError:
+            pass
+
+        if not _VALID_VAR_NAME_MATCH.match(key):
+            raise PreprocessorError(f"invalid variable name '{key}'", ctx) from None
+
+        try:
+            value = varstack[key.upper()].value
+        except KeyError:
+            if value is None:
+                raise PreprocessorError(f"undefined variable '{key}' (and no default given)", ctx) from None
+
+        line = f"{line[:var_start]}{value}{line[var_end+1:]}"
+
+    while True:
+        var_start = line.find("$")
+        if var_start < 0:
+            break
+
+        var_end = line.find(" ", var_start + 1)
+        if var_end < 0:
+            # -1 would be the last entry, but in a range it is without the specified entry
+            var_end = len(line.rstrip())
+
+        ctx.colnr = var_start
+        ctx.ref_colnr = var_end - 1
+
+        key = line[var_start + 1 : var_end]
+
+        if not _VALID_VAR_NAME_MATCH.match(key):
+            raise PreprocessorError(f"invalid variable name '{key}'", ctx) from None
+
+        try:
+            value = varstack[key.upper()].value
+        except KeyError:
+            raise PreprocessorError(f"undefined variable '{key}'", ctx) from None
+
+        line = f"{line[:var_start]}{value}{line[var_end:]}"
+
+    return line
+
+
 class CP2KPreprocessor(Iterator):
     def __init__(self, fhandle, base_dir, initial_variable_values=None):
         self._varstack = {}
@@ -48,77 +122,7 @@ class CP2KPreprocessor(Iterator):
         self._lineiter.add_file(fhandle, managed=False)
 
     def _resolve_variables(self, line):
-        var_start = 0
-        var_end = 0
-
-        ctx = Context(line=line)
-
-        # the following algorithm is from CP2Ks cp_parser_inpp_methods.F to reproduce its behavior :(
-
-        # first replace all "${...}"  with no nesting, meaning that ${foo${bar}} means foo$bar is the key
-        while True:
-            var_start = line.find("${")
-            if var_start < 0:
-                break
-
-            var_end = line.find("}", var_start + 2)
-            if var_end < 0:
-                ctx.colnr = len(line)
-                ctx.ref_colnr = var_start
-                raise PreprocessorError("unterminated variable", ctx)
-
-            ctx.colnr = var_start
-            ctx.ref_colnr = var_end
-
-            key = line[var_start + 2 : var_end]  # without ${ and }
-            value = None
-
-            try:
-                # see whether we got a default value and unpack
-                key, value = key.split("-", maxsplit=1)
-            except ValueError:
-                pass
-
-            if not _VALID_VAR_NAME_MATCH.match(key):
-                raise PreprocessorError(f"invalid variable name '{key}'", ctx) from None
-
-            try:
-                value = self._varstack[key.upper()].value
-            except KeyError:
-                if value is None:
-                    raise PreprocessorError(f"undefined variable '{key}' (and no default given)", ctx) from None
-
-            line = f"{line[:var_start]}{value}{line[var_end+1:]}"
-
-        var_start = 0
-        var_end = 0
-
-        while True:
-            var_start = line.find("$")
-            if var_start < 0:
-                break
-
-            var_end = line.find(" ", var_start + 1)
-            if var_end < 0:
-                # -1 would be the last entry, but in a range it is without the specified entry
-                var_end = len(line.rstrip())
-
-            ctx.colnr = var_start
-            ctx.ref_colnr = var_end - 1
-
-            key = line[var_start + 1 : var_end]
-
-            if not _VALID_VAR_NAME_MATCH.match(key):
-                raise PreprocessorError(f"invalid variable name '{key}'", ctx) from None
-
-            try:
-                value = self._varstack[key.upper()].value
-            except KeyError:
-                raise PreprocessorError(f"undefined variable '{key}'", ctx) from None
-
-            line = f"{line[:var_start]}{value}{line[var_end:]}"
-
-        return line
+        return resolve_variables(line, self._varstack)
 
     def _parse_preprocessor_instruction(self, line):
         conditional_match = _CONDITIONAL_MATCH.match(line)
