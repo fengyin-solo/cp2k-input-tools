@@ -1,11 +1,14 @@
+import contextlib
+import json
 import os
 import re
+import tempfile
 from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
-from typing import NamedTuple, Sequence
+from typing import List, NamedTuple, Optional, Sequence, Tuple
 
-from .lineiterator import MultiFileLineIterator
+from .lineiterator import IncludeOrigin, MultiFileLineIterator
 from .parser_errors import PreprocessorError
 from .tokenizer import COMMENT_CHARS, Context, TokenizerError, tokenize
 
@@ -18,6 +21,62 @@ class _Variable(NamedTuple):
 class _ConditionalBlock(NamedTuple):
     condition: str
     ctx: defaultdict
+
+
+class IncludeSite(NamedTuple):
+    """One link in the include chain of an emitted line"""
+
+    filename: Optional[str]  # absolute path of the file containing the directive (None for stdin/buffers)
+    line_start: int  # first physical line of the @INCLUDE/@XCTYPE directive
+    line_end: int  # last physical line of the @INCLUDE/@XCTYPE directive
+    colnr: int  # column where the directive starts (in the first physical line)
+    colnr_end: int  # column just past the directive (in the first physical line)
+    directive: str  # the logical (left-stripped, possibly continued) directive line
+
+
+class SourceLocation(NamedTuple):
+    """Origin of one emitted output line in a source file"""
+
+    filename: Optional[str]  # absolute path of the originating file (None for stdin/buffers)
+    line_start: int  # first physical source line (a line continuation joins several)
+    line_end: int  # last physical source line
+    colnrs: Tuple[int, ...]  # columns where content started in each physical source line
+    starts: Tuple[int, ...]  # offsets in the output line at which each source line starts
+
+
+class SourceMapEntry(NamedTuple):
+    """Mapping of one emitted output line back to its location in the source tree"""
+
+    output_line: int  # 1-based line number in the preprocessed output
+    location: SourceLocation
+    include_chain: Tuple[IncludeSite, ...]  # root-first chain of directives leading to the file
+
+
+class PreprocessedInput(NamedTuple):
+    lines: List[str]
+    source_map: List[SourceMapEntry]
+
+    @property
+    def text(self) -> str:
+        return "".join(f"{line}\n" for line in self.lines)
+
+
+class OutputPathConflictError(Exception):
+    """Raised when an output path would overwrite the input file"""
+
+
+_BUFFER_NAMES = frozenset({"<BUFFER>", "<stdin>"})
+
+
+def _abspath(fname):
+    """Return the absolute path for a file handle name, or None for unnamed streams (stdin/StringIO)"""
+    if not fname or fname in _BUFFER_NAMES:
+        return None
+
+    try:
+        return str(Path(fname).resolve())
+    except OSError:
+        return fname
 
 
 _VALID_VAR_NAME_MATCH = re.compile(r"^[a-z_]\w*$", flags=re.IGNORECASE | re.ASCII)
@@ -221,13 +280,24 @@ class CP2KPreprocessor(Iterator):
             if inctype.upper() == "XCTYPE":
                 filename = f"xc_section/{filename}.sec"
 
+            # remember where this include was requested before pushing the new file on the stack
+            colnr_offset = self._lineiter.colnrs[0] if self._lineiter.colnrs else 0
+            origin = IncludeOrigin(
+                fname=self._lineiter.fname,
+                line_start=self._lineiter.line_start,
+                line_end=self._lineiter.line_range[1],
+                colnr=colnr_offset + include_match.start("complete"),
+                colnr_end=colnr_offset + include_match.end("complete"),
+                directive=line,
+            )
+
             for inc_dir in self._inc_dirs:
                 try:
                     # if the filename is an absolute path, joinpath uses that one and will ignore the dir
                     fhandle = inc_dir.joinpath(filename).open("r")
 
                     # the _lineiter takes over the handle and closes it at EOF
-                    self._lineiter.add_file(fhandle)
+                    self._lineiter.add_file(fhandle, origin=origin)
 
                     break
                 except OSError:
@@ -288,3 +358,128 @@ class CP2KPreprocessor(Iterator):
     @property
     def fname(self):
         return self._lineiter.fname
+
+    @property
+    def source_info(self) -> SourceMapEntry:
+        """Origin (file, line range, columns and include chain) of the most recently emitted line"""
+
+        lineiter = self._lineiter
+
+        location = SourceLocation(
+            filename=_abspath(lineiter.fname),
+            line_start=lineiter.line_start,
+            line_end=lineiter.line_range[1],
+            colnrs=tuple(lineiter.colnrs),
+            starts=tuple(lineiter.starts),
+        )
+
+        include_chain = tuple(
+            IncludeSite(
+                filename=_abspath(origin.fname),
+                line_start=origin.line_start,
+                line_end=origin.line_end,
+                colnr=origin.colnr,
+                colnr_end=origin.colnr_end,
+                directive=origin.directive,
+            )
+            for origin in lineiter.origins
+        )
+
+        # output_line is set by the caller of the high-level preprocess() function
+        return SourceMapEntry(output_line=0, location=location, include_chain=include_chain)
+
+
+def preprocess(fhandle, base_dir=".", initial_variable_values=None) -> PreprocessedInput:
+    """
+    Run the CP2K preprocessor on the given input and collect the expanded lines
+    together with a per-line source map.
+
+    :param fhandle: An open file handle (or any text iterator, e.g. ``io.StringIO``) with the CP2K input
+    :param base_dir: A path (str/Path) or a sequence of paths searched for relative @INCLUDE/@XCTYPE files
+    :param initial_variable_values: optional dictionary with preprocessor variable presets (highest priority
+                                    is still given to @SET inside the input, as in CP2K)
+    """
+
+    preprocessor = CP2KPreprocessor(fhandle, base_dir, initial_variable_values)
+
+    lines: List[str] = []
+    source_map: List[SourceMapEntry] = []
+
+    for output_line, line in enumerate(preprocessor, start=1):
+        lines.append(line)
+        source_map.append(preprocessor.source_info._replace(output_line=output_line))
+
+    return PreprocessedInput(lines=lines, source_map=source_map)
+
+
+def source_map_to_dict(source_map: Sequence[SourceMapEntry]) -> dict:
+    """Convert the source map to plain dictionaries suitable for JSON serialization"""
+
+    return {
+        "format": "cp2k-input-tools/source-map/v1",
+        "lines": [
+            {
+                "output_line": entry.output_line,
+                "file": entry.location.filename,
+                "line_start": entry.location.line_start,
+                "line_end": entry.location.line_end,
+                "colnrs": list(entry.location.colnrs),
+                "starts": list(entry.location.starts),
+                "include_chain": [
+                    {
+                        "file": site.filename,
+                        "line_start": site.line_start,
+                        "line_end": site.line_end,
+                        "colnr": site.colnr,
+                        "colnr_end": site.colnr_end,
+                        "directive": site.directive,
+                    }
+                    for site in entry.include_chain
+                ],
+            }
+            for entry in source_map
+        ],
+    }
+
+
+def source_map_to_json(source_map: Sequence[SourceMapEntry]) -> str:
+    """Serialize the source map as a JSON document"""
+
+    return json.dumps(source_map_to_dict(source_map), indent=2) + "\n"
+
+
+def atomic_write_text(path, text: str, encoding: str = "utf-8") -> None:
+    """
+    Write text to ``path`` atomically: write to a temporary file in the same directory first and
+    move it into place afterwards, never leaving a partially written target behind.
+    """
+
+    destination = Path(path)
+    parent = destination.parent if str(destination.parent) else Path(".")
+    parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(parent))
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as tmp_handle:
+            tmp_handle.write(text)
+        os.replace(tmp_name, destination)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+
+
+def ensure_no_output_conflict(input_path, output_path=None, source_map_path=None) -> None:
+    """
+    Refuse writing the preprocessed text or its source map to the same location as the input file
+    (which the processor is still reading from). Does nothing when no input path is known (stdin).
+    """
+
+    if input_path is None:
+        return
+
+    input_resolved = Path(input_path).resolve()
+
+    for label, candidate in (("output file", output_path), ("source map file", source_map_path)):
+        if candidate is not None and Path(candidate).resolve() == input_resolved:
+            raise OutputPathConflictError(f"refusing to overwrite the input file '{input_resolved}' with the {label}")

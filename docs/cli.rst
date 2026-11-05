@@ -5,6 +5,10 @@ cp2k-input-tools Command Line Interfaces
    :prog: cp2klint
    :nested: full
 
+.. click::  cp2k_input_tools.cli.cp2kpreprocess:cp2kpreprocess
+   :prog: cp2kpreprocess
+   :nested: full
+
 .. click::  cp2k_input_tools.cli.fromcp2k:fromcp2k
    :prog: fromcp2k
    :nested: full

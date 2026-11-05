@@ -7,6 +7,7 @@ Fully validating pure-python CP2K input file parsers including preprocessing cap
 Available commands (also available through an API, see below):
 
 * `cp2klint` .. a CP2K input file linter
+* `cp2kpreprocess` .. expand the CP2K preprocessor directives (`@INCLUDE`, `@XCTYPE`, `@IF`, variables) of an input file or standard input, optionally with a JSON source map
 * `fromcp2k` .. create a JSON/YAML configuration file or an [AiiDA](https://github.com/aiidateam/aiida-cp2k) run script from a CP2K input file (includes validation)
 * `tocp2k` .. convert a JSON or YAML configuration back to CP2K's input file format (includes validation)
 * `cp2kgen` .. generate new input files based on a given input file and expressions to change parameters programmatically

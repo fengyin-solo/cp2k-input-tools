@@ -1,6 +1,15 @@
 # Change Log
 
 
+## [Unreleased]
+
+* add the `cp2kpreprocess` command (and matching library API) to expand `@INCLUDE`,
+  `@XCTYPE`, `@IF`/`@ENDIF`, `@SET` and variable substitution of a CP2K input file
+  from a file or standard input to standard output or a file (atomically replaced),
+  with multiple `--include-dir` search directories, `--set` variable presets and an
+  optional JSON source map containing the originating absolute file path, original
+  line and column ranges and the include chain for every output line
+
 ## [0.9.3] - 2026-10-26
 
 * re-release of the intended 0.9.2 changes with corrected package metadata

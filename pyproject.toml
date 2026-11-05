@@ -44,6 +44,7 @@ sphinx-click = "^6.0.0"
 
 [tool.poetry.scripts]
 cp2klint = 'cp2k_input_tools.cli.lint:cp2klint'
+cp2kpreprocess = 'cp2k_input_tools.cli.cp2kpreprocess:cp2kpreprocess'
 fromcp2k = 'cp2k_input_tools.cli.fromcp2k:fromcp2k'
 tocp2k = 'cp2k_input_tools.cli.tocp2k:tocp2k'
 cp2kgen = 'cp2k_input_tools.cli.cp2kgen:cp2kgen'

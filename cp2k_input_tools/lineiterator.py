@@ -1,9 +1,20 @@
 from collections.abc import Iterator
-from typing import List, NamedTuple, TextIO, Tuple
+from typing import List, NamedTuple, Optional, TextIO, Tuple
 
 
 class LineContinuationError(Exception):
     pass
+
+
+class IncludeOrigin(NamedTuple):
+    """Location of the directive at which a file was pulled into the include stack"""
+
+    fname: str  # name of the parent file containing the @INCLUDE/@XCTYPE directive
+    line_start: int  # first physical line of the (possibly continued) directive
+    line_end: int  # last physical line of the (possibly continued) directive
+    colnr: int  # column at which the directive starts in the first physical line
+    colnr_end: int  # column just past the directive in the first physical line
+    directive: str  # the logical line containing the directive (left-stripped)
 
 
 class ContinuationLineIterator(Iterator):
@@ -12,6 +23,11 @@ class ContinuationLineIterator(Iterator):
         self._linenr = 0
         self._colnrs = []  # number of stripped whitespace (from current line, continued line, 2nd continued line, ...)
         self._starts = [0]  # list of newline starts (in case of line continuations)
+
+    @property
+    def line_start(self) -> int:
+        """Original line number where the last (possibly continued) line started"""
+        return self._linenr - len(self._starts) + 1
 
     @property
     def line_range(self) -> Tuple[int, int]:
@@ -60,6 +76,7 @@ class _FileIterPair(NamedTuple):
     fhandle: TextIO
     iter: ContinuationLineIterator
     managed: bool = True  # whether the iterator should close it at EOF
+    origin: Optional[IncludeOrigin] = None  # where this file was included from
 
 
 class MultiFileLineIterator(Iterator):
@@ -70,8 +87,8 @@ class MultiFileLineIterator(Iterator):
         while self._fileiterpairs:
             self._fileiterpairs.pop().fhandle.close()
 
-    def add_file(self, fhandle, managed=True):
-        self._fileiterpairs += [_FileIterPair(fhandle, ContinuationLineIterator(fhandle), managed)]
+    def add_file(self, fhandle, managed=True, origin=None):
+        self._fileiterpairs += [_FileIterPair(fhandle, ContinuationLineIterator(fhandle), managed, origin)]
 
     def __next__(self) -> str:
         while self._fileiterpairs:
@@ -80,16 +97,26 @@ class MultiFileLineIterator(Iterator):
                 return next(self._fileiterpairs[-1].iter)
             except StopIteration:
                 # end of current file, remove the file from the stack and close it
-                fhandle, _, managed = self._fileiterpairs.pop()
-                if managed:
-                    fhandle.close()
+                pair = self._fileiterpairs.pop()
+                if pair.managed:
+                    pair.fhandle.close()
 
         raise StopIteration
+
+    @property
+    def line_start(self) -> int:
+        """Original line number where the last (possibly continued) line started"""
+        return self._fileiterpairs[-1].iter.line_start
 
     @property
     def line_range(self) -> Tuple[int, int]:
         """Original line numbers (start and end) of the last (possibly combined) line"""
         return self._fileiterpairs[-1].iter.line_range
+
+    @property
+    def origins(self) -> List[IncludeOrigin]:
+        """Include chain: the locations at which the files on the stack (root excluded) were included"""
+        return [pair.origin for pair in self._fileiterpairs[1:] if pair.origin is not None]
 
     @property
     def colnrs(self) -> List[int]:
