@@ -118,7 +118,12 @@ class CP2KInputParser:
             param_node = section_node.find("./SECTION_PARAMETERS")
             if param_node:  # validate the section parameter like a kw datatype
                 # there is no way we get a second section parameter, assign directly
-                self._treerefs[-1].param = Keyword.from_string(param_node, section_param).values
+                try:
+                    self._treerefs[-1].param = Keyword.from_string(param_node, section_param).values
+                except InvalidParameterError as exc:
+                    raise InvalidParameterError(
+                        f"invalid values for section parameter of section: {section_name}", Context()
+                    ) from exc
             else:
                 raise InvalidParameterError(
                     f"section parameters given for non-parametrized section '{section_name}': {section_param}", Context()

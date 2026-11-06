@@ -1,0 +1,18 @@
+! same content as includes/main.inp with force_eval.inc inlined,
+! differing only in formatting and casing
+&force_eval
+  method quickstep
+  &dft
+    &mgrid
+      cutoff 400
+    &end mgrid
+    &xc
+      &xc_functional pbe
+      &end xc_functional
+    &end xc
+  &end dft
+&end force_eval
+&GLOBAL
+  run_type energy
+  print_level MEDIUM
+&END GLOBAL

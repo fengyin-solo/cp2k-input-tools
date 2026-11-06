@@ -1,0 +1,12 @@
+&FORCE_EVAL
+   METHOD QUICKSTEP
+   &DFT
+      &MGRID
+         CUTOFF 400
+      &END MGRID
+      &XC
+         &XC_FUNCTIONAL PBE
+         &END XC_FUNCTIONAL
+      &END XC
+   &END DFT
+&END FORCE_EVAL

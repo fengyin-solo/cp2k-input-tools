@@ -1,0 +1,4 @@
+&GLOBAL
+   PRINT_LEVEL MEDIUM
+&END GLOBAL
+@include does_not_exist.inc

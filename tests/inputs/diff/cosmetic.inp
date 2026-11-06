@@ -1,0 +1,42 @@
+# semantically identical to base.inp: only comments, indentation, casing,
+# quoting, numeric notation and keyword/section ordering differ
+&force_eval
+        method quickstep
+        &dft
+                &scf
+                        max_scf 50
+                &end scf
+                &xc
+                        &xc_functional pbe
+                        &end xc_functional
+                &end xc
+                &qs
+                        eps_default 1.0d-10   ! Fortran real notation
+                &end qs
+                &mgrid
+                        rel_cutoff 50
+                        cutoff 4.0e2
+                &end mgrid
+        &end dft
+        &subsys
+                &kind H
+                        basis_set DZVP-MOLOPT
+                        element H
+                &end kind
+                &kind O
+                        basis_set DZVP-MOLOPT
+                        element O
+                &end kind
+                &cell
+                        periodic xyz
+                        c 0.0 0.0 10
+                        b 0.0 10.0 0.0
+                        a 10.0 0.0 0.0
+                &end cell
+        &end subsys
+&end force_eval
+&global
+        run_type energy
+        project "my-calc"
+        print_level medium
+&end global

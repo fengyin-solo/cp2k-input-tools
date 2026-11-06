@@ -1,0 +1,10 @@
+&GLOBAL
+   RUN_TYPE ${RUN}
+&END GLOBAL
+&FORCE_EVAL
+   &DFT
+      &MGRID
+         CUTOFF ${CUT}
+      &END MGRID
+   &END DFT
+&END FORCE_EVAL

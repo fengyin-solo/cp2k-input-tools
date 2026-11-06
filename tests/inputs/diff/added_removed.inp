@@ -1,0 +1,41 @@
+&GLOBAL
+   PRINT_LEVEL MEDIUM
+   PROJECT my-calc
+   RUN_TYPE ENERGY
+&END GLOBAL
+&FORCE_EVAL
+   METHOD QUICKSTEP
+   &DFT
+      &MGRID
+         CUTOFF 400
+      &END MGRID
+      &SCF
+         EPS_SCF 1.0E-6
+         MAX_SCF 50
+      &END SCF
+      &XC
+         &XC_FUNCTIONAL PBE
+         &END XC_FUNCTIONAL
+      &END XC
+   &END DFT
+   &SUBSYS
+      &CELL
+         A 10.0 0.0 0.0
+         B 0.0 10.0 0.0
+         C 0.0 0.0 10.0
+         PERIODIC XYZ
+      &END CELL
+      &KIND H
+         ELEMENT H
+         BASIS_SET DZVP-MOLOPT
+      &END KIND
+      &KIND O
+         ELEMENT O
+         BASIS_SET DZVP-MOLOPT
+      &END KIND
+      &KIND C
+         ELEMENT C
+         BASIS_SET DZVP-MOLOPT
+      &END KIND
+   &END SUBSYS
+&END FORCE_EVAL

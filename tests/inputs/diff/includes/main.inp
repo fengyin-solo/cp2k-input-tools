@@ -1,0 +1,5 @@
+&GLOBAL
+   PRINT_LEVEL MEDIUM
+   RUN_TYPE ENERGY
+&END GLOBAL
+@include force_eval.inc

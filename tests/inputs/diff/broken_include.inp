@@ -1,0 +1,4 @@
+&GLOBAL
+   PRINT_LEVEL MEDIUM
+&END GLOBAL
+@include force_eval_broken.inc
