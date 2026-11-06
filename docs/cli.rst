@@ -21,6 +21,10 @@ cp2k-input-tools Command Line Interfaces
    :prog: cp2kget
    :nested: full
 
+.. click::  cp2k_input_tools.cli.cp2kmerge:cp2k_merge
+   :prog: cp2k-merge
+   :nested: full
+
 .. click::  cp2k_input_tools.cli.datafile_lint:cp2k_datafile_lint
    :prog: cp2k-datafile-lint
    :nested: full

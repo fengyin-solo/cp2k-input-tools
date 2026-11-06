@@ -48,6 +48,7 @@ fromcp2k = 'cp2k_input_tools.cli.fromcp2k:fromcp2k'
 tocp2k = 'cp2k_input_tools.cli.tocp2k:tocp2k'
 cp2kgen = 'cp2k_input_tools.cli.cp2kgen:cp2kgen'
 cp2kget = 'cp2k_input_tools.cli.cp2kget:cp2kget'
+cp2k-merge = 'cp2k_input_tools.cli.cp2kmerge:cp2k_merge'
 cp2k-language-server = 'cp2k_input_tools.cli.lsp:cp2k_language_server'
 cp2k-datafile-lint = 'cp2k_input_tools.cli.datafile_lint:cp2k_datafile_lint'
 
